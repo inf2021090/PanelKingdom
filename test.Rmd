@@ -1,0 +1,179 @@
+Here is an R Markdown report that separates the code into snippets and provides brief explanations in Greek. You can copy and paste this into an R Markdown file (`.Rmd`) to generate the report.
+
+```markdown
+---
+title: "Spam Classification using Naive Bayes"
+author: "Your Name"
+output: html_document
+---
+
+## Εισαγωγή
+
+Αυτό το παράδειγμα αναλύει τον τρόπο κατάταξης μηνυμάτων ως SPAM ή HAM χρησιμοποιώντας τον αλγόριθμο Naive Bayes. Στο πρώτο βήμα, φορτώνουμε τα δεδομένα και κάνουμε κάποιες προεπεξεργασίες στα κείμενα πριν τα χρησιμοποιήσουμε για εκπαίδευση του μοντέλου.
+
+## Φόρτωση Βιβλιοθηκών
+
+Αρχικά, φορτώνουμε τις απαραίτητες βιβλιοθήκες για την ανάλυση κειμένου και τη μηχανική μάθηση.
+
+```{r}
+# Φόρτωση βιβλιοθηκών
+library(tm)
+library(e1071)
+library(ggplot2)
+library(dplyr)
+library(caret)
+library(tidyverse)
+library(wordcloud)
+```
+
+## Φόρτωση Δεδομένων
+
+Φορτώνουμε το σύνολο δεδομένων `spam.csv` και το εξετάζουμε για τυχόν κενά δεδομένα ή περιττές στήλες.
+
+```{r}
+# Φόρτωση του dataset
+df <- read.csv("spam.csv", encoding = "ISO-8859-1")
+
+# Προβολή των πρώτων γραμμών του dataset
+cat("First 5 rows of the dataset:\n")
+head(df)
+
+# Έλεγχος για κενά δεδομένα
+cat("\nMissing values in the dataset:\n")
+sapply(df, function(x) sum(is.na(x)))
+```
+
+## Προεπεξεργασία Δεδομένων
+
+Αφαιρούμε περιττές στήλες, μετονομάζουμε τις στήλες για καλύτερη κατανόηση, και πραγματοποιούμε μετατροπή των μηνυμάτων σε πεζά γράμματα. Επίσης, αφαιρούμε αριθμούς και σημεία στίξης.
+
+```{r}
+# Αφαίρεση περιττών στηλών
+df <- df %>% select(-c(X, Unnamed: 2, Unnamed: 3, Unnamed: 4))
+
+# Μετονομασία στηλών για καλύτερη κατανόηση
+names(df) <- c("label", "message")
+
+# Έλεγχος για επαναλαμβανόμενα δεδομένα
+df <- df %>% distinct()
+
+# Μετατροπή των μηνυμάτων σε πεζά γράμματα
+df$message <- tolower(df$message)
+
+# Αφαίρεση αριθμών και σημείων στίξης χρησιμοποιώντας regex
+df$message <- gsub("[^a-zA-Z\\s]", "", df$message)
+
+# Προβολή των πρώτων γραμμών μετά την προεπεξεργασία
+cat("First 5 rows after preprocessing:\n")
+head(df)
+
+cat("\nMissing values in the dataset after preprocessing:\n")
+sapply(df, function(x) sum(is.na(x)))
+```
+
+## Κατανομή Ετικετών (SPAM vs HAM)
+
+Εξετάζουμε τη κατανομή των ετικετών SPAM και HAM για να κατανοήσουμε την ισορροπία των δεδομένων.
+
+```{r}
+# Έλεγχος κατανομής των ετικετών (HAM vs SPAM)
+cat("\nDistribution of SPAM vs HAM:\n")
+table(df$label)
+
+# Οπτικοποίηση της κατανομής
+ggplot(df, aes(x = label)) +
+  geom_bar() +
+  labs(title = "Distribution of SPAM vs HAM", x = "Label", y = "Count")
+```
+
+## Δημιουργία Matrices TF-IDF
+
+Χρησιμοποιούμε τον αλγόριθμο TF-IDF για να μετατρέψουμε τα μηνύματα σε αριθμητική αναπαράσταση, η οποία θα χρησιμοποιηθεί για την εκπαίδευση του μοντέλου.
+
+```{r}
+# Δημιουργία του corpus και προεπεξεργασία του κειμένου
+corpus <- Corpus(VectorSource(df$message))
+
+# Καθαρισμός και προεπεξεργασία του corpus
+corpus <- tm_map(corpus, content_transformer(tolower))
+corpus <- tm_map(corpus, removePunctuation)
+corpus <- tm_map(corpus, removeNumbers)
+corpus <- tm_map(corpus, removeWords, stopwords("english"))
+corpus <- tm_map(corpus, stripWhitespace)
+
+# Δημιουργία του Term-Document Matrix (TDM)
+tdm <- TermDocumentMatrix(corpus)
+
+# Μετατροπή του TDM σε μήτρα
+m <- as.matrix(tdm)
+
+# Δημιουργία του Sparse Matrix με χρήση του TF-IDF
+tfidf <- weightTfIdf(tdm)
+```
+
+## Εκπαίδευση Μοντέλου Naive Bayes
+
+Χωρίζουμε τα δεδομένα σε σύνολο εκπαίδευσης και δοκιμής, και στη συνέχεια εκπαιδεύουμε το μοντέλο Naive Bayes με βάση τα δεδομένα εκπαίδευσης.
+
+```{r}
+# Διαχωρισμός του dataset σε σύνολα εκπαίδευσης και δοκιμής
+set.seed(42)
+trainIndex <- createDataPartition(df$label, p = 0.8, list = FALSE)
+train_data <- df[trainIndex, ]
+test_data <- df[-trainIndex, ]
+
+# Δημιουργία TF-IDF για τα δεδομένα εκπαίδευσης και δοκιμής
+train_tdm <- TermDocumentMatrix(Corpus(VectorSource(train_data$message)))
+train_tfidf <- weightTfIdf(train_tdm)
+
+test_tdm <- TermDocumentMatrix(Corpus(VectorSource(test_data$message)))
+test_tfidf <- weightTfIdf(test_tdm)
+
+# Εκπαίδευση του μοντέλου Naive Bayes
+nb_model <- naiveBayes(as.matrix(train_tfidf), as.factor(train_data$label))
+```
+
+## Κανόνες Πρόβλεψης και Αξιολόγησης Μοντέλου
+
+Χρησιμοποιούμε το εκπαιδευμένο μοντέλο για να κάνουμε προβλέψεις και να αξιολογήσουμε την απόδοσή του με βάση τα δεδομένα δοκιμής.
+
+```{r}
+# Κάνουμε προβλέψεις για το σύνολο δοκιμής
+predictions <- predict(nb_model, as.matrix(test_tfidf))
+
+# Υπολογισμός της ακρίβειας του μοντέλου
+accuracy <- mean(predictions == test_data$label)
+cat("Accuracy: ", accuracy, "\n")
+
+# Εκτύπωση της αναφοράς κατάταξης
+cat("Classification Report:\n")
+print(confusionMatrix(predictions, as.factor(test_data$label)))
+
+# Οπτικοποίηση του Confusion Matrix
+conf_matrix <- confusionMatrix(predictions, as.factor(test_data$label))
+conf_matrix_df <- as.data.frame(as.table(conf_matrix))
+ggplot(conf_matrix_df, aes(Var1, Var2, fill = Freq)) +
+  geom_tile() +
+  geom_text(aes(label = Freq), color = "white", size = 5) +
+  scale_fill_gradient(low = "white", high = "blue") +
+  labs(title = "Confusion Matrix", x = "Predicted", y = "True")
+```
+
+## Συμπεράσματα
+
+Στην αναφορά αυτή, δημιουργήσαμε και αξιολογήσαμε ένα μοντέλο Naive Bayes για την κατάταξη μηνυμάτων ως SPAM ή HAM. Η διαδικασία περιλάμβανε φόρτωση και προεπεξεργασία των δεδομένων, καθώς και την εκπαίδευση και αξιολόγηση του μοντέλου.
+
+```
+
+### Brief explanation of each section in Greek:
+
+1. **Εισαγωγή:** Παρουσιάζει το σκοπό του παραδείγματος και τη μέθοδο Naive Bayes για την κατηγοριοποίηση μηνυμάτων.
+2. **Φόρτωση Βιβλιοθηκών:** Φορτώνει όλες τις απαραίτητες βιβλιοθήκες για την ανάλυση και μηχανική μάθηση.
+3. **Φόρτωση Δεδομένων:** Φορτώνει το dataset και ελέγχει για κενά δεδομένα και περιττές στήλες.
+4. **Προεπεξεργασία Δεδομένων:** Εκτελεί καθαρισμό των δεδομένων, όπως αφαίρεση αριθμών και σημείων στίξης.
+5. **Κατανομή Ετικετών:** Εξετάζει την κατανομή των ετικετών για την ανάλυση της ισορροπίας.
+6. **Δημιουργία Matrices TF-IDF:** Δημιουργεί την αναπαράσταση TF-IDF για τα δεδομένα κειμένου.
+7. **Εκπαίδευση Μοντέλου Naive Bayes:** Εκπαιδεύει το μοντέλο Naive Bayes και το χρησιμοποιεί για προβλέψεις.
+8. **Κανόνες Πρόβλεψης και Αξιολόγησης Μοντέλου:** Αξιολογεί το μοντέλο χρησιμοποιώντας ακρίβεια και confusion matrix.
+
+This R Markdown template should generate a nice report with explanations in Greek!
